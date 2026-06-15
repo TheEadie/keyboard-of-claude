@@ -41,10 +41,15 @@ internal sealed class TrayApplication : ApplicationContext
 
         Directory.CreateDirectory(_signalDir);
 
+        var resetItem = new ToolStripMenuItem("Reset");
+        resetItem.Click += OnReset;
+
         var quitItem = new ToolStripMenuItem("Quit");
         quitItem.Click += OnQuit;
 
         var contextMenu = new ContextMenuStrip();
+        contextMenu.Items.Add(resetItem);
+        contextMenu.Items.Add(new ToolStripSeparator());
         contextMenu.Items.Add(quitItem);
 
         _notifyIcon = new NotifyIcon
@@ -171,6 +176,38 @@ internal sealed class TrayApplication : ApplicationContext
         SessionState.TurnDone => "turn-done",
         _                     => "resting",
     };
+
+    private void OnReset(object? sender, EventArgs e)
+    {
+        // Manual escape hatch: best-effort delete every file in the signal
+        // directory, then recompute. No confirmation dialog. Files that cannot be
+        // deleted (locked, vanished, mid-write temp files) are skipped silently —
+        // consistent with the tray's swallow-and-continue error handling — so a
+        // single bad file never aborts the pass or tears down the tray process.
+        try
+        {
+            foreach (var path in Directory.GetFiles(_signalDir))
+            {
+                try
+                {
+                    File.Delete(path);
+                }
+                catch
+                {
+                    // Locked / vanished / unreadable: skip and continue.
+                }
+            }
+        }
+        catch
+        {
+            // Directory enumeration itself failed (e.g. dir vanished): nothing to
+            // delete. Fall through to Recompute, which tolerates a missing dir.
+        }
+
+        // Repaint from whatever remains. With the directory emptied this aggregates
+        // to None -> green. Recompute already swallows its own exceptions.
+        Recompute();
+    }
 
     private void OnQuit(object? sender, EventArgs e)
     {
