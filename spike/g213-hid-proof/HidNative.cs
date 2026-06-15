@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 
 /// <summary>
-/// Win32 P/Invoke helpers for HID device enumeration and feature-report sending.
+/// Win32 P/Invoke helpers for HID device enumeration and output-report sending.
 /// Covers setupapi.dll, hid.dll, and kernel32.dll.
 /// This is throwaway spike code — not intended for reuse.
 /// </summary>
@@ -50,6 +50,31 @@ internal static class HidNative
         public ushort VersionNumber;
     }
 
+    // HIDP_CAPS describes a HID top-level collection: its usage page/usage and the
+    // byte lengths of its input/output/feature reports. We use it to find the one
+    // vendor-defined collection that accepts G213 lighting commands.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct HIDP_CAPS
+    {
+        public ushort Usage;
+        public ushort UsagePage;
+        public ushort InputReportByteLength;
+        public ushort OutputReportByteLength;
+        public ushort FeatureReportByteLength;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 17)]
+        public ushort[] Reserved;
+        public ushort NumberLinkCollectionNodes;
+        public ushort NumberInputButtonCaps;
+        public ushort NumberInputValueCaps;
+        public ushort NumberInputDataIndices;
+        public ushort NumberOutputButtonCaps;
+        public ushort NumberOutputValueCaps;
+        public ushort NumberOutputDataIndices;
+        public ushort NumberFeatureButtonCaps;
+        public ushort NumberFeatureValueCaps;
+        public ushort NumberFeatureDataIndices;
+    }
+
     // -------------------------------------------------------------------------
     // P/Invoke — hid.dll
     // -------------------------------------------------------------------------
@@ -61,7 +86,14 @@ internal static class HidNative
     private static extern bool HidD_GetAttributes(IntPtr hidDeviceObject, ref HIDD_ATTRIBUTES attributes);
 
     [DllImport("hid.dll", SetLastError = true)]
-    private static extern bool HidD_SetFeature(IntPtr hidDeviceObject, byte[] lpReportBuffer, uint reportBufferLength);
+    private static extern bool HidD_GetPreparsedData(IntPtr hidDeviceObject, out IntPtr preparsedData);
+
+    [DllImport("hid.dll", SetLastError = true)]
+    private static extern bool HidD_FreePreparsedData(IntPtr preparsedData);
+
+    // Returns NTSTATUS (HIDP_STATUS_SUCCESS == 0x00110000), not a Win32 error.
+    [DllImport("hid.dll", SetLastError = false)]
+    private static extern int HidP_GetCaps(IntPtr preparsedData, ref HIDP_CAPS capabilities);
 
     // -------------------------------------------------------------------------
     // P/Invoke — setupapi.dll
@@ -106,6 +138,14 @@ internal static class HidNative
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool WriteFile(
+        IntPtr hFile,
+        byte[] lpBuffer,
+        uint nNumberOfBytesToWrite,
+        out uint lpNumberOfBytesWritten,
+        IntPtr lpOverlapped);
 
     // -------------------------------------------------------------------------
     // Public API
@@ -173,12 +213,46 @@ internal static class HidNative
     }
 
     /// <summary>
-    /// Sends a HID feature report. Returns true on success.
-    /// On failure, the Win32 error can be retrieved via <see cref="Marshal.GetLastWin32Error"/>.
+    /// Reads a collection's usage page, usage, and declared output-report length.
+    /// Used to single out the vendor lighting collection. Returns false if the
+    /// device exposes no preparsed data (e.g. a collection that refused to open).
     /// </summary>
-    public static bool SendFeatureReport(IntPtr handle, byte[] report)
+    public static bool TryGetCaps(IntPtr handle, out ushort usagePage, out ushort usage, out int outputReportByteLength)
     {
-        return HidD_SetFeature(handle, report, (uint)report.Length);
+        usagePage = 0;
+        usage = 0;
+        outputReportByteLength = 0;
+
+        if (!HidD_GetPreparsedData(handle, out IntPtr preparsed) || preparsed == IntPtr.Zero)
+            return false;
+
+        try
+        {
+            const int HIDP_STATUS_SUCCESS = 0x00110000;
+            var caps = new HIDP_CAPS();
+            if (HidP_GetCaps(preparsed, ref caps) != HIDP_STATUS_SUCCESS)
+                return false;
+
+            usagePage = caps.UsagePage;
+            usage = caps.Usage;
+            outputReportByteLength = caps.OutputReportByteLength;
+            return true;
+        }
+        finally
+        {
+            HidD_FreePreparsedData(preparsed);
+        }
+    }
+
+    /// <summary>
+    /// Sends a HID output report (the moral equivalent of hidapi's hid_write):
+    /// a plain WriteFile to the device handle. The G213 accepts lighting commands
+    /// this way — not as feature reports. Returns true on success; on failure the
+    /// Win32 error can be retrieved via <see cref="Marshal.GetLastWin32Error"/>.
+    /// </summary>
+    public static bool SendOutputReport(IntPtr handle, byte[] report)
+    {
+        return WriteFile(handle, report, (uint)report.Length, out _, IntPtr.Zero);
     }
 
     /// <summary>Closes a device handle returned by <see cref="OpenMatchingDevices"/>.</summary>
