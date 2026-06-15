@@ -8,4 +8,16 @@
     <RootNamespace>KeyboardOfClaude.Tray</RootNamespace>
     <AssemblyName>KeyboardOfClaude.Tray</AssemblyName>
   </PropertyGroup>
+
+  <!--
+    Self-contained single-file win-x64 settings apply at publish time only.
+    Gating on _IsPublishing keeps the documented `dotnet build`/`dotnet run`
+    dev loop framework-dependent (fast, no RID restore), while `dotnet publish`
+    (and scripts/install.sh) produces the self-contained single-file artifact.
+  -->
+  <PropertyGroup Condition="'$(_IsPublishing)' == 'true'">
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+  </PropertyGroup>
 </Project>
