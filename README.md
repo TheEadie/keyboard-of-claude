@@ -71,7 +71,7 @@ The tray app must be running. Build and launch it from `src/KeyboardOfClaude.Tra
 
 Add the following entries to your **user-level** `~/.claude/settings.json`. These hooks complement the `Stop` hook above and complete the full colour cycle.
 
-If you already have a `Notification`, `UserPromptSubmit`, `PostToolUse`, or `SessionStart` array in your `hooks` block, **append** each matcher object to the existing array rather than replacing it. If those arrays do not exist yet, add them alongside the existing `Stop` array.
+If you already have a `Notification`, `UserPromptSubmit`, `PostToolUse`, `SessionStart`, or `SessionEnd` array in your `hooks` block, **append** each matcher object to the existing array rather than replacing it. If those arrays do not exist yet, add them alongside the existing `Stop` array.
 
 ```json
 {
@@ -115,6 +115,16 @@ If you already have a `Notification`, `UserPromptSubmit`, `PostToolUse`, or `Ses
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /home/eadie/code/keyboard-of-claude/scripts/signal.sh clear"
+          }
+        ]
+      }
     ]
   }
 }
@@ -128,10 +138,11 @@ If you already have a `Notification`, `UserPromptSubmit`, `PostToolUse`, or `Ses
 - **`UserPromptSubmit` (clear → green on reply):** Fires when the user submits a prompt. Calls `signal.sh clear`, deleting this Claude process's signal file so the keyboard moves back towards green. Idempotent — works even if no signal file exists yet (e.g. the very first prompt of a session).
 - **`PostToolUse` (clear → green on resume):** Fires after every tool call completes. Calls `signal.sh clear` — this ensures that when Claude resumes working after a permission approval (which does not fire `UserPromptSubmit`), the `blocked` state is cleared as soon as the approved tool runs. Since this fires on every tool call, the repeated `cmd.exe` path-resolution is accepted as-is; the fail-silent contract keeps this safe.
 - **`SessionStart` (reap → drop stale files):** Fires when a session begins, including on `/clear`, `/compact`, resume, and startup. Calls `signal.sh reap`, which (a) clears this Claude process's own file — so `/clear`/`/compact` immediately drop a stale `turn-done`/`blocked` left from the previous conversation — and (b) removes any signal file whose owning `claude` PID is no longer alive, cleaning up after crashed or closed sessions. Reaping is purely liveness-based (it checks whether the process exists, never how old the file is), so a session that is legitimately waiting on you stays lit indefinitely.
+- **`SessionEnd` (clear → green on clean exit):** Fires when a session ends cleanly (normal exit, logout, `/clear`, `/compact`). Calls `signal.sh clear`, deleting this Claude process's own file so the keyboard returns toward green the moment the session closes — rather than waiting for the next session's `SessionStart` reap. It fires on every `SessionEnd` reason with no filtering; `clear` is idempotent and process-scoped, so overlapping with the `SessionStart` reaper on `/clear`/`/compact` is harmless.
 
 ### How it works / verifying
 
-With all five hooks installed (Stop + the four above) and the tray app running:
+With all six hooks installed (Stop + the five above) and the tray app running:
 
 1. **Permission prompt → red:** When Claude Code requests permission to use a tool, the `Notification` event fires with a message containing "permission". The hook writes `blocked` for the session; the tray app detects this and turns the keyboard **red**.
 2. **User reply → green:** When you submit your reply (`UserPromptSubmit`), the hook deletes the session's signal file; the tray returns to **green** (assuming no other sessions are blocked or waiting).
@@ -149,5 +160,9 @@ These are accepted tradeoffs of wiring the colour cycle to Claude Code's event m
 - **`Notification` matching depends on wording.** The `blocked → red` hook only fires for notifications whose message contains the substring `permission` (case-insensitive). If a future Claude Code version rephrases or localises its permission prompt, the keyboard may stop turning red; conversely, an unrelated notification that happens to contain the word "permission" would falsely turn it red.
 - **`PostToolUse` clears unconditionally.** Because `PostToolUse` deletes the session file after *every* tool call (not just an approved one), it can race other hooks. If a tool finishing (clear) interleaves after a near-simultaneous permission prompt (`blocked`) or end-of-turn (`turn-done`) write, the just-written state can be erased and the keyboard wrongly drops to green. Hooks run as independent processes with no ordering guarantee.
 - **Denied permissions are not cleared automatically.** If you *deny* a permission request, no tool runs (so `PostToolUse` does not fire) and you may not submit a new prompt (so `UserPromptSubmit` does not fire). The `blocked` file then lingers and the keyboard stays red until the next prompt or tool call clears it.
-- **Crashed-session cleanup is deferred, not immediate.** A session that ends abruptly (crash, closed terminal) leaves its file behind until the next `SessionStart` reap runs — i.e. when any Claude session next starts. Until then the stale file can pin the keyboard via max-urgency aggregation. The reap is keyed on process liveness, so it only ever removes files for PIDs that are genuinely gone; a long-waiting live session is never cleared.
+- **Abrupt-termination cleanup is deferred, not immediate.** A session that ends *cleanly* now clears its own file at once via the `SessionEnd` hook. But a session that dies *abruptly* — crash, `SIGKILL`, or a terminal closed in a way that does not fire `SessionEnd` — leaves its file behind until the next `SessionStart` reap runs, i.e. when any Claude session next starts. Until then the stale file can pin the keyboard via max-urgency aggregation. The reap is keyed on process liveness, so it only ever removes files for PIDs that are genuinely gone; a long-waiting live session is never cleared. (The tray "Reset" action below is the manual escape hatch for clearing such a lingering file on demand.)
 - **PID reuse is theoretically possible.** Files are keyed by the `claude` process PID. If that PID is recycled by the OS for a *different* `claude` process after the original exits, a stale file could briefly be treated as live. This is extremely unlikely and self-heals on the new session's next state-writing hook. A recycled PID belonging to a non-`claude` process is reaped normally.
+
+### Tray menu — Reset
+
+Right-click the tray icon and choose **Reset** to immediately clear all signal files and return the keyboard to green. This is a manual escape hatch for a stuck colour — e.g. a `blocked` (red) state left lingering after a *denied* permission, or a stale file from an abruptly-terminated session that has not yet been reaped. Reset deletes every file in the signal directory (best-effort; locked or vanished files are skipped) and repaints from the result. It is a **momentary** clear, not a persistent mute: any session that is still live will re-signal its state on its next hook event and the keyboard will repaint accordingly. There is no confirmation dialog.
