@@ -12,6 +12,33 @@ A tray app watches a signal directory on Windows; Claude Code hooks write one st
 | `scripts/signal.sh` | WSL signal script: writes/clears a state file keyed by the owning `claude` process, and reaps files for dead processes |
 | `spike/` | Throwaway HID proof-of-concept (see its own README) |
 
+## Install
+
+Run the one-liner below from any WSL2 terminal. It installs the tray app self-contained and registers it to auto-start at every Windows login — no manual launch step required afterwards.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TheEadie/keyboard-of-claude/main/scripts/install.sh | bash
+```
+
+> **Warning: hard-reset.** Running the installer **hard-resets** the `~/code/keyboard-of-claude` checkout to `origin/main`, discarding any local commits and uncommitted changes in that directory. If you are developing in that checkout, commit and push your work first.
+
+### What it does
+
+- **Source:** Clones the repo to `~/code/keyboard-of-claude` if absent; otherwise hard-resets it to `origin/main` so the build always matches the latest remote state.
+- **Stop:** Stops any already-running tray instance (its locked exe would otherwise block the publish).
+- **Publish:** Publishes the tray app self-contained, single-file, `win-x64` into `%LOCALAPPDATA%\keyboard-of-claude\app` using the Windows `dotnet.exe` toolchain.
+- **Shortcut:** Creates (or refreshes) a shortcut in the Windows Startup folder pointing at the published exe — idempotent, replaces any prior shortcut.
+- **Launch:** Relaunches the freshly published app immediately, with no log-out/log-in required.
+
+### Prerequisites
+
+- WSL2 with `git` installed.
+- Windows .NET 10 SDK (`dotnet.exe`) on PATH.
+- Standard WSL2 Windows interop (`cmd.exe`, `wslpath`, `powershell.exe`) — present on all default WSL2 installs.
+- SSH-authenticated git access to GitHub (the repo URL uses the SSH form).
+
+Hook setup (turning the keyboard amber/red/green from Claude Code events) remains the manual steps documented in the sections below — hook installation is intentionally out of scope for this installer.
+
 ## Claude Code hooks — turn-done (amber)
 
 ### Prerequisite
