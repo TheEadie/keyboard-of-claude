@@ -46,7 +46,7 @@ See `src/KeyboardOfClaude.Tray/HidNative.cs` (P/Invoke layer) and `src/KeyboardO
 
 From WSL: `/mnt/c/Users/<you>/AppData/Local/keyboard-of-claude/signals`
 
-Each file in the directory represents one Claude Code session. File **content** (whitespace-trimmed, case-insensitive) encodes state:
+Each file represents one running Claude process (one terminal). The filename is the owning `claude` process PID — chosen over the conversation/session id because the PID survives `/clear` and `/compact` (which rotate the session id), so the file slot is reused rather than orphaned. `scripts/signal.sh` writes/clears these and reaps files whose process is dead. File **content** (whitespace-trimmed, case-insensitive) encodes state:
 
 | Content | Meaning | Keyboard colour |
 |---|---|---|
