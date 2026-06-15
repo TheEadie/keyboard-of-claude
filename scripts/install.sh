@@ -211,10 +211,16 @@ step "Startup shortcut created: $lnk_win"
 
 step "Phase G: Relaunching tray app..."
 
-# Launch detached. The empty "" is the required window-title argument to start.
-# A non-zero exit from cmd.exe /c start is treated as a warning only — the
-# install (publish + shortcut) has already succeeded at this point.
-if cmd.exe /c start "" "${app_dir_win}\\${EXE_NAME}" >/dev/null 2>&1; then
+# Launch detached via PowerShell Start-Process — NOT `cmd.exe /c start`.
+# Under WSL interop, `cmd.exe /c start` blocks indefinitely: the long-running
+# GUI process inherits the relayed stdio handles, so the bash call never sees
+# EOF and hangs even though the app has launched. Start-Process spawns a fully
+# detached Windows process and returns immediately. exe_ps/app_dir_ps are the
+# single-quote-escaped paths built in Phase F.
+#
+# A non-zero exit is treated as a warning only — the install (publish +
+# shortcut) has already succeeded at this point.
+if "$PWSH" -NoProfile -NonInteractive -Command "Start-Process -FilePath '${exe_ps}' -WorkingDirectory '${app_dir_ps}'" >/dev/null 2>&1; then
     step "Tray app launched."
 else
     echo "install.sh: WARNING: Could not auto-launch the tray app. The app has been published and the Startup shortcut is in place — it will start at next login." >&2
