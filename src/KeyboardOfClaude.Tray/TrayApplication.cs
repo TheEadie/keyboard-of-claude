@@ -1,3 +1,5 @@
+using System.Drawing;
+
 namespace KeyboardOfClaude.Tray;
 
 internal sealed class TrayApplication : ApplicationContext
@@ -15,13 +17,22 @@ internal sealed class TrayApplication : ApplicationContext
     private readonly System.Windows.Forms.Timer _resyncTimer;
     private readonly SynchronizationContext _syncContext;
 
+    // One robot icon per distinct status colour, built on demand and cached.
+    private readonly Dictionary<SessionState, Icon> _icons = new();
+
     private SessionState _lastPaintedState = SessionState.None;
     private bool _lastPaintOk;
 
     public TrayApplication()
     {
-        _syncContext = SynchronizationContext.Current
-            ?? throw new InvalidOperationException("No SynchronizationContext on UI thread.");
+        // We are constructed before Application.Run pumps the message loop, so
+        // the WinForms SynchronizationContext is not installed yet. Install one
+        // now; it binds to this STA thread, which Application.Run then pumps, so
+        // ScheduleRecompute's Post marshals watcher events onto the UI thread.
+        if (SynchronizationContext.Current is null)
+            SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+
+        _syncContext = SynchronizationContext.Current!;
 
         _signalDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -38,7 +49,7 @@ internal sealed class TrayApplication : ApplicationContext
 
         _notifyIcon = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = IconFor(SessionState.None),
             Text = "keyboard-of-claude: resting",
             ContextMenuStrip = contextMenu,
             Visible = true,
@@ -111,6 +122,8 @@ internal sealed class TrayApplication : ApplicationContext
             _lastPaintedState = state;
             _lastPaintOk = ok;
 
+            _notifyIcon.Icon = IconFor(state);
+
             var tooltip = $"keyboard-of-claude: {LabelFor(state)}";
             if (!ok)
                 tooltip += " (keyboard not found)";
@@ -122,6 +135,27 @@ internal sealed class TrayApplication : ApplicationContext
             // A transient failure must never tear down the resident tray
             // process; swallow and let the next event / resync retry.
         }
+    }
+
+    private Icon IconFor(SessionState state)
+    {
+        // Every "resting" variant shares the green icon, so cache by the three
+        // colours ColourFor actually produces.
+        var key = state switch
+        {
+            SessionState.Blocked  => SessionState.Blocked,
+            SessionState.TurnDone => SessionState.TurnDone,
+            _                     => SessionState.None,
+        };
+
+        if (!_icons.TryGetValue(key, out var icon))
+        {
+            var (r, g, b) = ColourFor(key);
+            icon = IconFactory.RobotIcon(Color.FromArgb(r, g, b));
+            _icons[key] = icon;
+        }
+
+        return icon;
     }
 
     private static (byte r, byte g, byte b) ColourFor(SessionState state) => state switch
@@ -158,6 +192,9 @@ internal sealed class TrayApplication : ApplicationContext
             _debounceTimer.Dispose();
             _watcher.Dispose();
             _notifyIcon.Dispose();
+
+            foreach (var icon in _icons.Values)
+                icon.Dispose();
         }
         base.Dispose(disposing);
     }
