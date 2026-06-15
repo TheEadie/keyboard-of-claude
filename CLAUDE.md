@@ -11,19 +11,19 @@ Ambient G213 status light for Claude Code — paints the keyboard green/amber/re
 
 ## Build & run
 
-This project targets `net10.0-windows` and must be built with the Windows `dotnet.exe` toolchain. Linux `dotnet` does not support WinForms and MSBuild rejects Linux paths. Always use UNC paths (`\\wsl.localhost\Ubuntu\...`) from WSL.
+This project targets `net10.0-windows` and must be built with the Windows `dotnet.exe` toolchain. Linux `dotnet` does not support WinForms and MSBuild rejects Linux paths. Run the commands below from the repo root; `dotnet.exe` resolves the relative project path against the current WSL directory.
 
 **Build:**
 ```
-dotnet.exe build "\\wsl.localhost\Ubuntu\home\eadie\code\keyboard-of-claude\src\KeyboardOfClaude.Tray\KeyboardOfClaude.Tray.csproj" -c Release
+dotnet.exe build src/KeyboardOfClaude.Tray/KeyboardOfClaude.Tray.csproj -c Release
 ```
 
 **Run:**
 ```
-dotnet.exe run --project "\\wsl.localhost\Ubuntu\home\eadie\code\keyboard-of-claude\src\KeyboardOfClaude.Tray\KeyboardOfClaude.Tray.csproj" -c Release
+dotnet.exe run --project src/KeyboardOfClaude.Tray/KeyboardOfClaude.Tray.csproj -c Release
 ```
 
-The distro name is `Ubuntu` (not `Ubuntu-24.04`). Adjust the UNC path if the distro name differs.
+If `dotnet.exe` cannot resolve the relative path from WSL, pass the project as a UNC path instead (`\\wsl.localhost\<distro>\...`). The distro name here is `Ubuntu` (not `Ubuntu-24.04`).
 
 ## G213 HID protocol (verified)
 
