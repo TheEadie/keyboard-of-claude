@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# signal.sh — write a per-session state file into the tray app's signal directory.
+# signal.sh — write or clear a per-session state file in the tray app's signal directory.
 #
 # Usage: signal.sh <state-token> <session-id>
-#   state-token  — the state to signal, e.g. "turn-done"
+#   state-token  — the state to signal, e.g. "turn-done" or "blocked";
+#                  use "clear" to delete the session's file (returns session to green).
+#                  Deleting a missing file is a successful no-op.
 #   session-id   — opaque per-session key (Claude Code UUID); becomes the filename
 #
-# The script is fail-silent: any failure (bad args, interop unavailable, write error)
-# results in a clean exit 0 with no file written and no stderr output to the session.
+# The script is fail-silent: any failure (bad args, interop unavailable, write/delete error)
+# results in a clean exit 0 with no file written/removed and no stderr output to the session.
 # Do not use "set -e" — explicit guards on every failure branch ensure exit 0.
 
 state="$1"
@@ -55,13 +57,20 @@ signal_dir="$localappdata_unix/keyboard-of-claude/signals"
 # 6. Create directory if missing
 mkdir -p "$signal_dir" 2>/dev/null || exit 0
 
-# 7. Write the file atomically — write to a temp file in the same directory and
-# rename over the target. The tray app watches this directory, so an in-place
-# truncate-then-write could be observed mid-write as an empty or partial token;
-# rename(2) within the same filesystem is atomic, so the watcher only ever sees
-# the complete file. No trailing newline (printf '%s').
-tmp_file="$signal_dir/.$session_id.tmp.$$"
-printf '%s' "$state" > "$tmp_file" 2>/dev/null || exit 0
-mv -f "$tmp_file" "$signal_dir/$session_id" 2>/dev/null || { rm -f "$tmp_file" 2>/dev/null; exit 0; }
+# 7. Write or clear the session file based on the state token.
+if [ "$state" = "clear" ]; then
+    # Clear path — delete the session file. rm -f on a missing file exits 0, so
+    # this is naturally idempotent. 2>/dev/null silences any unexpected error output.
+    rm -f "$signal_dir/$session_id" 2>/dev/null || exit 0
+else
+    # Write path — atomically write state to the session file. Write to a temp file
+    # in the same directory and rename over the target. The tray app watches this
+    # directory, so an in-place truncate-then-write could be observed mid-write as an
+    # empty or partial token; rename(2) within the same filesystem is atomic, so the
+    # watcher only ever sees the complete file. No trailing newline (printf '%s').
+    tmp_file="$signal_dir/.$session_id.tmp.$$"
+    printf '%s' "$state" > "$tmp_file" 2>/dev/null || exit 0
+    mv -f "$tmp_file" "$signal_dir/$session_id" 2>/dev/null || { rm -f "$tmp_file" 2>/dev/null; exit 0; }
+fi
 
 exit 0
