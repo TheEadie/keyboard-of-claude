@@ -50,8 +50,9 @@ Each file represents one running Claude process (one terminal). The filename is 
 
 | Content | Meaning | Keyboard colour |
 |---|---|---|
-| `blocked` | Session needs permission | Red `(255, 0, 0)` |
-| `turn-done` | Session awaiting user | Amber `(255, 128, 0)` |
+| `blocked` | Session needs permission | Flashing red `(255, 0, 0)` |
+| `turn-done` | Session awaiting user | Flashing red `(255, 0, 0)` |
+| `working` | Work in progress | Amber `(255, 128, 0)` |
 | _(anything else / empty)_ | No action needed | Green `(0, 255, 0)` |
 
-The app paints the colour for the highest-urgency state across all files (`blocked` > `turn-done` > green).
+`blocked` and `turn-done` both flash red (the keyboard alternates between red and off ~every 600 ms); the tray icon/tooltip still distinguishes them. The app paints the colour for the highest-urgency state across all files (`blocked` > `turn-done` > `working` > green).
