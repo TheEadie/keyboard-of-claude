@@ -3,8 +3,9 @@ namespace KeyboardOfClaude.Tray;
 internal enum SessionState
 {
     None = 0,       // nothing waiting -> green
-    TurnDone = 1,   // amber
-    Blocked = 2,    // red (highest urgency)
+    Working = 1,    // work in progress -> amber
+    TurnDone = 2,   // awaiting user -> flashing red
+    Blocked = 3,    // needs permission -> flashing red (highest urgency)
 }
 
 internal static class SessionStateParser
@@ -17,6 +18,8 @@ internal static class SessionStateParser
             return SessionState.Blocked;
         if (string.Equals(token, "turn-done", StringComparison.OrdinalIgnoreCase))
             return SessionState.TurnDone;
+        if (string.Equals(token, "working", StringComparison.OrdinalIgnoreCase))
+            return SessionState.Working;
         return SessionState.None;
     }
 }
