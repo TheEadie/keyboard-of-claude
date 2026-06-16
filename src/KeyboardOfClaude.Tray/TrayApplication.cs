@@ -9,12 +9,17 @@ internal sealed class TrayApplication : ApplicationContext
     // Safety net: re-scan periodically so dropped watcher events (buffer
     // overflow) and keyboard hotplug eventually self-correct.
     private const int ResyncMs = 5000;
+    // Half-period of the red attention flash: the keyboard alternates between
+    // the lit colour and off every FlashMs.
+    private const int FlashMs = 600;
 
     private readonly string _signalDir;
     private readonly NotifyIcon _notifyIcon;
     private readonly FileSystemWatcher _watcher;
     private readonly System.Windows.Forms.Timer _debounceTimer;
     private readonly System.Windows.Forms.Timer _resyncTimer;
+    private readonly System.Windows.Forms.Timer _flashTimer;
+    private bool _flashOn;
     private readonly SynchronizationContext _syncContext;
 
     // One robot icon per distinct status colour, built on demand and cached.
@@ -70,6 +75,11 @@ internal sealed class TrayApplication : ApplicationContext
         _resyncTimer.Tick += (_, _) => Recompute();
         _resyncTimer.Start();
 
+        // Drives the flashing-red attention states. Started/stopped by Recompute
+        // depending on whether the current state is one that should flash.
+        _flashTimer = new System.Windows.Forms.Timer { Interval = FlashMs };
+        _flashTimer.Tick += OnFlashTick;
+
         // Initial scan before watching starts.
         Recompute();
 
@@ -121,10 +131,24 @@ internal sealed class TrayApplication : ApplicationContext
             if (state == _lastPaintedState && _lastPaintOk)
                 return;
 
-            var (r, g, b) = ColourFor(state);
-
-            bool ok = G213Keyboard.TryPaint(r, g, b);
             _lastPaintedState = state;
+
+            bool ok;
+            if (IsFlashing(state))
+            {
+                // Start (or keep) the flash cycle lit; OnFlashTick toggles from here.
+                _flashOn = true;
+                var (fr, fg, fb) = ColourFor(state);
+                ok = G213Keyboard.TryPaint(fr, fg, fb);
+                _flashTimer.Start();
+            }
+            else
+            {
+                _flashTimer.Stop();
+                _flashOn = false;
+                var (r, g, b) = ColourFor(state);
+                ok = G213Keyboard.TryPaint(r, g, b);
+            }
             _lastPaintOk = ok;
 
             _notifyIcon.Icon = IconFor(state);
@@ -142,14 +166,28 @@ internal sealed class TrayApplication : ApplicationContext
         }
     }
 
+    // Blocked and TurnDone both demand attention and flash; everything else is solid.
+    private static bool IsFlashing(SessionState state) =>
+        state is SessionState.Blocked or SessionState.TurnDone;
+
+    private void OnFlashTick(object? sender, EventArgs e)
+    {
+        // Alternate the current flashing state's colour with off. Painting
+        // directly bypasses Recompute's skip-if-unchanged guard.
+        _flashOn = !_flashOn;
+        var (r, g, b) = _flashOn ? ColourFor(_lastPaintedState) : ((byte)0, (byte)0, (byte)0);
+        _lastPaintOk = G213Keyboard.TryPaint(r, g, b);
+    }
+
     private Icon IconFor(SessionState state)
     {
-        // Every "resting" variant shares the green icon, so cache by the three
-        // colours ColourFor actually produces.
+        // Blocked and TurnDone both paint red, and every "resting" variant shares
+        // green, so cache by the distinct colours ColourFor actually produces.
         var key = state switch
         {
             SessionState.Blocked  => SessionState.Blocked,
-            SessionState.TurnDone => SessionState.TurnDone,
+            SessionState.TurnDone => SessionState.Blocked,
+            SessionState.Working  => SessionState.Working,
             _                     => SessionState.None,
         };
 
@@ -165,15 +203,17 @@ internal sealed class TrayApplication : ApplicationContext
 
     private static (byte r, byte g, byte b) ColourFor(SessionState state) => state switch
     {
-        SessionState.Blocked  => (255, 0,   0),
-        SessionState.TurnDone => (255, 128, 0),
-        _                     => (0,   255, 0),
+        SessionState.Blocked  => (255, 0,   0),    // red (flashing)
+        SessionState.TurnDone => (255, 0,   0),    // red (flashing)
+        SessionState.Working  => (255, 128, 0),    // amber
+        _                     => (0,   255, 0),    // green
     };
 
     private static string LabelFor(SessionState state) => state switch
     {
         SessionState.Blocked  => "blocked",
         SessionState.TurnDone => "turn-done",
+        SessionState.Working  => "working",
         _                     => "resting",
     };
 
@@ -212,6 +252,7 @@ internal sealed class TrayApplication : ApplicationContext
     private void OnQuit(object? sender, EventArgs e)
     {
         // Best-effort reset to green; ignore the result.
+        _flashTimer.Stop();
         var (r, g, b) = ColourFor(SessionState.None);
         G213Keyboard.TryPaint(r, g, b);
 
@@ -227,6 +268,7 @@ internal sealed class TrayApplication : ApplicationContext
         {
             _resyncTimer.Dispose();
             _debounceTimer.Dispose();
+            _flashTimer.Dispose();
             _watcher.Dispose();
             _notifyIcon.Dispose();
 
