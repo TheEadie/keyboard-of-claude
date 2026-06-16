@@ -4,7 +4,7 @@
 #
 # Usage: signal.sh <state-token>
 #   state-token  — the state to signal:
-#                    "blocked" / "turn-done" — written as the file content
+#                    "working" / "turn-done" / "blocked" — written as the file content
 #                    "clear"                 — delete this process's file (return to green)
 #                    "reap"                  — clear this process's own file, then delete
 #                                              any file whose owning Claude process is dead
