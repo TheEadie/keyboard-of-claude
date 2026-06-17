@@ -32,7 +32,11 @@ If you already have a `hooks` block, merge these entries into it (append to exis
       { "hooks": [{ "type": "command", "command": "bash ~/code/keyboard-of-claude/scripts/signal.sh working" }] }
     ],
     "Notification": [
-      { "hooks": [{ "type": "command", "command": "jq -e 'select((.message // \"\") | ascii_downcase | contains(\"permission\"))' >/dev/null 2>&1 && bash ~/code/keyboard-of-claude/scripts/signal.sh blocked" }] }
+      { "matcher": "permission_prompt", "hooks": [{ "type": "command", "command": "bash ~/code/keyboard-of-claude/scripts/signal.sh blocked" }] },
+      { "matcher": "idle_prompt", "hooks": [{ "type": "command", "command": "bash ~/code/keyboard-of-claude/scripts/signal.sh turn-done" }] }
+    ],
+    "PermissionRequest": [
+      { "hooks": [{ "type": "command", "command": "bash ~/code/keyboard-of-claude/scripts/signal.sh blocked" }] }
     ],
     "Stop": [
       { "hooks": [{ "type": "command", "command": "bash ~/code/keyboard-of-claude/scripts/signal.sh turn-done" }] }
@@ -57,7 +61,9 @@ That's it. Submit a prompt and the keyboard should turn amber.
 |---|---|---|
 | `UserPromptSubmit` | `working` | amber while Claude works |
 | `PostToolUse` | `working` | stays amber; clears `blocked` after you approve a tool |
-| `Notification` (permission) | `blocked` | flashing red |
+| `PermissionRequest` | `blocked` | flashing red — a permission dialog is open, incl. the `/plan` approval prompt |
+| `Notification` (`permission_prompt`) | `blocked` | flashing red |
+| `Notification` (`idle_prompt`) | `turn-done` | flashing red — idle, awaiting you |
 | `Stop` | `turn-done` | flashing red — turn finished, awaiting you |
 | `SessionStart` | `reap` | drops stale files (incl. on `/clear`, `/compact`) |
 | `SessionEnd` | `clear` | back to green on clean exit |
